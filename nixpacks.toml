@@ -2,11 +2,5 @@
     PYTHON_VERSION = "3.10"
     PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
 
-[phases.setup]
-    nixPkgs = ["python310", "gcc"]
-
-[phases.install]
-    cmds = ["python -m venv /opt/venv && . /opt/venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"]
-
 [start]
     cmd = "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --worker-class gthread --timeout 120 index:app"
