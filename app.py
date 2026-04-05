@@ -260,8 +260,20 @@ async def startup():
     await initialize_tokens()
     asyncio.create_task(refresh_tokens_periodically())
 
-# Removed blocking startup initialization. 
-# Tokens will now be lazy-loaded automatically when a request is made.
+# Initialize tokens on first access
+_tokens_initialized = False
+
+@app.before_request
+def initialize_if_needed():
+    global _tokens_initialized
+    if not _tokens_initialized:
+        try:
+            asyncio.run(initialize_tokens())
+            _tokens_initialized = True
+        except:
+            pass
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+
