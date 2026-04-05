@@ -1,33 +1,30 @@
-# 🚀 Deploying to Coolify (Ubuntu VPS)
+# 🚀 Deploying to Coolify (Docker Method)
 
-Follow these simple steps to deploy your FreeFire API to Coolify without Docker manually.
+This is the most reliable way to get your API live. Follow these steps exactly.
 
-## 1. Create a New Resource
-- Open your Coolify Dashboard.
-- Click **+ New Resource** -> **Public Repository** (or Private if applicable).
-- Paste your GitHub/GitLab repository URL.
+## 1. Update Coolify Configuration
+- Go to your application in the **Coolify Dashboard**.
+- Go to the **Configuration** tab.
+- Change **Build Pack** from `Nixpacks` to **`Docker`**.
+- Click **Save**.
 
-## 2. Configure Build Settings
-- **Build Pack**: Select **Nixpacks** (This is the "Direct" way).
-- **Python Version**: Nixpacks will automatically use the version from `nixpacks.toml` (3.10).
-- **Install Command**: `pip install -r requirements.txt` (Auto-detected).
-- **Start Command**: `gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --worker-class gthread --timeout 120 index:app` (Auto-detected from `Procfile`).
-
-## 3. Set Environment Variables
-Go to the **Environment Variables** tab in Coolify and add:
+## 2. Environment Variables
+Ensure these are set in the **Environment Variables** tab:
 - `PORT`: `5000`
 - `PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION`: `python`
 
-## 4. Network Setup
-- **Exposed Port**: Set this to `5000`.
-- Coolify will automatically create a Reverse Proxy (Nginx) and give you a URL (e.g., `https://your-api.coolify.io`).
+## 3. Network Setup
+- **Exposed Port**: Ensure this is set to **`5000`**.
 
-## 5. Deploy
-- Click **Deploy**.
-- Once the build is finished, your API will be live!
+## 4. Push and Deploy
+- **Push the new `Dockerfile`** to your GitHub repository.
+- Click **Deploy** in Coolify.
 
 ---
 
-### 💡 Troubleshooting
-- **Bad Gateway?** Make sure the **Exposed Port** in Coolify settings matches the `PORT` variable (default 5000).
-- **Protobuf Error?** The `nixpacks.toml` includes a fix, but ensure `PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python` is set in the environment variables.
+### 💡 Why this works:
+1.  **Guaranteed Dependencies**: The `Dockerfile` manually installs `gcc` and `python-dev`, which are sometimes missing in automatic builds.
+2.  **No Cache Issues**: Docker ignores Nixpacks' cached layers, giving you a fresh, clean build.
+3.  **Correct Library**: It uses the fixed `requirements.txt` with `protobuf 5.29.3`.
+
+**Once it's done, your API will be live on port 5000!** 🏁
