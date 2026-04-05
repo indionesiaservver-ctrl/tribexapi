@@ -1,3 +1,6 @@
+import os
+os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+print(" [!] RUNNING APP.PY VERSION 2.0 (ASYNC FIX) [!]", flush=True)
 import asyncio
 import time
 import httpx
@@ -36,6 +39,20 @@ def pad(text: bytes) -> bytes:
 def aes_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:
     aes = AES.new(key, AES.MODE_CBC, iv)
     return aes.encrypt(pad(plaintext))
+
+def unpad(text: bytes) -> bytes:
+    if not text:
+        return text
+    padding_length = text[-1]
+    if padding_length > len(text):
+         return text
+    return text[:-padding_length]
+
+def aes_cbc_decrypt(key: bytes, iv: bytes, ciphertext: bytes) -> bytes:
+    if not ciphertext or len(ciphertext) % 16 != 0:
+        return ciphertext
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    return unpad(aes.decrypt(ciphertext))
 
 def decode_protobuf(encoded_data: bytes, message_type: message.Message) -> message.Message:
     instance = message_type()
@@ -120,8 +137,8 @@ async def get_token_info(region: str) -> Tuple[str,str,str]:
     info = cached_tokens[region]
     return info['token'], info['region'], info['server_url']
 
-async def GetAccountInformation(uid, unk, region, endpoint):
-    region = region.upper()
+async def GetAccountInformation(uid, unk, region, endpoint) -> dict:
+    region = region.strip().strip('"').strip("'").upper()
     if region not in SUPPORTED_REGIONS:
         raise ValueError(f"Unsupported region: {region}")
     payload = await json_to_proto(json.dumps({'a': uid, 'b': unk}), main_pb2.GetPlayerPersonalShow())
@@ -133,25 +150,49 @@ async def GetAccountInformation(uid, unk, region, endpoint):
                'ReleaseVersion': RELEASEVERSION}
     async with httpx.AsyncClient() as client:
         resp = await client.post(server+endpoint, data=data_enc, headers=headers)
-        return json.loads(json_format.MessageToJson(decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)))
+        
+        print(f" [!] GARENA RESPONSE: Status {resp.status_code}, Length {len(resp.content)} [!]", flush=True)
+        log_path = os.path.abspath("debug.log")
+        print(f" [!] Writing to log: {log_path} [!]", flush=True)
+        with open(log_path, "a") as log:
+             log_msg = f"[{time.ctime()}] Garena Status: {resp.status_code}, len: {len(resp.content)}, hex: {resp.content[:20].hex()}\n"
+             log.write(log_msg)
+             print(f"DEBUG LOG: {log_msg}", flush=True)
+        
+        content = resp.content
+        try:
+             # Try decoding directly
+             return json.loads(json_format.MessageToJson(decode_protobuf(content, AccountPersonalShow_pb2.AccountPersonalShowInfo)))
+        except:
+             # Try decrypting first
+             try:
+                  decrypted = aes_cbc_decrypt(MAIN_KEY, MAIN_IV, content)
+                  return json.loads(json_format.MessageToJson(decode_protobuf(decrypted, AccountPersonalShow_pb2.AccountPersonalShowInfo)))
+             except Exception as e:
+                  with open("debug.log", "a") as log:
+                       log.write(f"[{time.ctime()}] Final Error: {str(e)}\n")
+                  raise e
+
+
 
 # === Caching Decorator ===
 def cached_endpoint(ttl=300):
     def decorator(fn):
         @wraps(fn)
-        def wrapper(*a, **k):
+        async def wrapper(*a, **k):
             key = (request.path, tuple(request.args.items()))
             if key in cache:
                 return cache[key]
-            res = fn(*a, **k)
+            res = await fn(*a, **k)
             cache[key] = res
             return res
         return wrapper
     return decorator
 
 # === Flask Routes ===
+
 @app.route('/')
-def index():
+async def index():
     return jsonify({
         "name": "FreeFire Account Info API",
         "version": "1.0",
@@ -164,16 +205,22 @@ def index():
 
 @app.route('/info')
 @cached_endpoint()
-def get_all_info():
-    region = request.args.get('region')
-    uid = request.args.get('uid')
+async def get_all_info():
+    region = request.args.get('region', '').strip().strip('"').strip("'")
+    uid = request.args.get('uid', '').strip().strip('"').strip("'")
 
     if not uid or not region:
         return jsonify({"error": "Please provide UID and REGION."}), 400
 
     try:
-        return_data = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
+        # Avoid running nested asyncio loops, just await
+        # In an 'async def' route, we just await
+        return_data: dict = await GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow")
         
+        # Ensure it's treated as a dict for the IDE
+        if not isinstance(return_data, dict):
+             return_data = {}
+             
         result = {
             'basic_info': return_data.get('basicInfo', {}),
             'profile_info': return_data.get('profileInfo', {}),
@@ -195,15 +242,18 @@ def get_all_info():
         formatted_json = json.dumps(result, indent=2, ensure_ascii=False)
         return formatted_json, 200, {'Content-Type': 'application/json; charset=utf-8'}
     except Exception as e:
-        return jsonify({"error": "Failed to get info"}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to get info: {str(e)}"}), 500
 
 @app.route('/refresh', methods=['GET','POST'])
-def refresh_tokens_endpoint():
+async def refresh_tokens_endpoint():
     try:
-        asyncio.run(initialize_tokens())
+        await initialize_tokens()
         return jsonify({'message':'Tokens refreshed for all regions.'}),200
     except Exception as e:
         return jsonify({'error': f'Refresh failed: {e}'}),500
+0
 
 # === Startup ===
 async def startup():
